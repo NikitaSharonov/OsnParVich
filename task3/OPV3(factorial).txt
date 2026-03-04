@@ -1,0 +1,66 @@
+#include <iostream>
+#include <thread>
+#include <future>
+#include <vector>
+#include <atomic>
+#include <chrono>
+
+unsigned long long factorial(int n) {
+    unsigned long long result = 1;
+    for (int i = 1; i <= n; ++i) {
+        result *= i;
+    }
+    return result;
+}
+
+int main() {
+    const int N = 5;
+    std::vector<int> numbers = { 4, 8, 12, 16, 20 };
+
+    std::atomic<int> tasksCompleted(0);
+    std::atomic<bool> monitoring(true);
+    std::vector<std::packaged_task<unsigned long long()>> tasks;
+    std::vector<std::future<unsigned long long>> futures;
+    std::vector<std::thread> threads;
+
+    for (int i = 0; i < N; ++i) {
+        std::packaged_task<unsigned long long()> task(std::bind(factorial, numbers[i]));
+        futures.push_back(task.get_future());
+        threads.push_back(std::thread(std::move(task)));
+    }
+
+    std::promise<void> completionPromise;
+    std::future<void> completionFuture = completionPromise.get_future();
+
+    std::thread monitor([&]() {
+        int lastCount = 0;
+    while (monitoring) {
+        int currentCount = tasksCompleted.load();
+        if (currentCount > lastCount) {
+            std::cout << "Monitor: " << currentCount << "/" << N << " tasks completed" << std::endl;
+            lastCount = currentCount;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    std::cout << "Monitor: stopping" << std::endl;
+        });
+
+    std::cout << "Waiting for results..." << std::endl;
+
+    for (int i = 0; i < N; ++i) {
+        unsigned long long result = futures[i].get();
+        std::cout << "Factorial of " << numbers[i] << " = " << result << std::endl;
+        tasksCompleted.fetch_add(1);
+    }
+
+    monitoring = false;
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    monitor.join();
+    completionPromise.set_value();
+    completionFuture.wait();
+    std::cout << "All tasks completed: " << tasksCompleted.load() << "/" << N << std::endl;
+    return 0;
+}
