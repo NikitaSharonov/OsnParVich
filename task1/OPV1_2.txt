@@ -1,0 +1,42 @@
+#include <iostream>
+#include <thread>
+#include <chrono>
+#include <random>
+
+void printNumbers(const std::string& threadName, int minDelay, int maxDelay) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> delay(minDelay, maxDelay);
+
+    for (int i = 1; i <= 5; ++i) {
+        std::cout << threadName << ": " << i << std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay(gen)));
+    }
+    std::cout << threadName << " finished its work" << std::endl;
+}
+
+int main() {
+    std::cout << "Main thread: starting program" << std::endl;
+
+    std::thread t1(printNumbers, "Thread 1 (slow)", 200, 300);
+    t1.detach();
+    std::cout << "Main thread: thread 1 detached (slow)" << std::endl;
+
+    std::thread t2(printNumbers, "Thread 2 (fast)", 100, 200);
+    std::cout << "Main thread: thread 2 created (fast)" << std::endl;
+
+    for (int i = 1; i <= 3; ++i) {
+        std::cout << "Main thread: message " << i << std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+
+    std::cout << "Main thread: waiting for thread 2 to complete..." << std::endl;
+    t2.join();
+
+    std::cout << "Main thread: thread 2 completed" << std::endl;
+    std::cout << "Main thread: small delay" << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    std::cout << "Main thread: program finished" << std::endl;
+    return 0;
+}
