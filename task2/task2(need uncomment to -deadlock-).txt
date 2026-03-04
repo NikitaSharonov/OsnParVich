@@ -1,0 +1,130 @@
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <chrono>
+#include <vector>
+#include <random>
+#include <string>
+#include <cmath>
+
+std::recursive_mutex log_mutex;
+std::queue<int> task_queue;
+std::mutex queue_mutex;
+std::condition_variable cv;
+bool production_done = false;
+const int MAX_TASKS = 20;
+
+thread_local int tasks_processed = 0;
+thread_local int sum_of_squares = 0;
+
+void log_message(const std::string& message, int depth = 0) {
+    std::lock_guard<std::recursive_mutex> lock(log_mutex);
+
+    for (int i = 0; i < depth; ++i) std::cout << "  ";
+    std::cout << "[Лог] " << message << std::endl;
+
+    if (depth < 2) {
+        log_message("Рекурсивный вызов лога", depth + 1);
+    }
+}
+
+void producer(int producer_id) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dist(100, 300);
+    for (int i = 0; i < MAX_TASKS; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(dist(gen)));
+        int task_value = i + 1;
+
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            task_queue.push(task_value);
+            std::cout << "Производитель " << producer_id << ": добавил задачу " << task_value
+                << " (размер очереди: " << task_queue.size() << ")" << std::endl;
+        }
+
+        cv.notify_one();
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex);
+        production_done = true;
+    }
+    cv.notify_all();
+    std::cout << "Производитель " << producer_id << ": завершил работу" << std::endl;
+}
+
+void consumer(int consumer_id) {
+    tasks_processed = 0;
+    sum_of_squares = 0;
+
+    while (true) {
+        std::unique_lock<std::mutex> lock(queue_mutex);
+
+        cv.wait(lock, [] { return !task_queue.empty() || production_done; });
+
+        if (!task_queue.empty()) {
+            int task = task_queue.front();
+            task_queue.pop();
+            lock.unlock();
+            int square = task * task;
+
+            std::cout << "  Потребитель " << consumer_id << " (ID: "
+                << std::this_thread::get_id() << "): "
+                << task << " в квадрате = " << square << std::endl;
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            tasks_processed++;
+            sum_of_squares += square;
+            log_message("Потребитель " + std::to_string(consumer_id) +
+                " обработал задачу " + std::to_string(task));
+
+            lock.lock();
+        }
+        else if (production_done) {
+            break;
+        }
+    }
+    std::cout << "\n  >>> Потребитель " << consumer_id << " завершил работу.\n"
+        << "      Обработано задач: " << tasks_processed << "\n"
+        << "      Сумма квадратов: " << sum_of_squares
+        << " (средний квадрат: " << (tasks_processed > 0 ? sum_of_squares / tasks_processed : 0) << ")\n";
+}
+
+void demonstrate_deadlock() {
+    std::mutex regular_mutex;
+    std::cout << "\n Демонстрация проблемы с обычным mutex \n";
+    std::thread t([&regular_mutex]() {
+        std::lock_guard<std::mutex> lock(regular_mutex);
+    std::cout << "Первый lock_guard\n";
+
+    // std::lock_guard<std::mutex> lock2(regular_mutex); // раскомментировать для дедлока
+    std::cout << "С обычным mutex повторная блокировка вызывает deadlock\n";
+        });
+    t.join();
+}
+
+int main() {
+    setlocale(LC_ALL, "ru");
+    std::cout << " Программа: Вычисление квадратов чисел \n\n";
+    std::cout << " Демонстрация recursive_mutex \n";
+    log_message("Начало работы программы");
+    std::cout << std::endl;
+    std::thread producer_thread(producer, 1);
+    std::vector<std::thread> consumers;
+    const int NUM_CONSUMERS = 3;
+    for (int i = 0; i < NUM_CONSUMERS; ++i) {
+        consumers.emplace_back(consumer, i + 1);
+    }
+
+    producer_thread.join();
+    for (auto& c : consumers) {
+        c.join();
+    }
+
+    std::cout << "\n Программа завершена \n";
+    demonstrate_deadlock();
+    return 0;
+}
