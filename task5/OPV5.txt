@@ -1,0 +1,50 @@
+#include <iostream>
+#include <omp.h>
+#include <chrono>
+
+int main() {
+    const int N = 10000000;
+    double* a = new double[N];
+    double sum = 0.0;
+    for (int i = 0; i < N; ++i) {
+        a[i] = i;
+    }
+
+    // последовательная версия
+    auto start_seq = std::chrono::high_resolution_clock::now();
+    sum = 0.0;
+    for (int i = 0; i < N; ++i) {
+        sum += a[i];
+    }
+    auto end_seq = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed_seq = end_seq - start_seq;
+    std::cout << "Sequential version: " << elapsed_seq.count() << " seconds" << std::endl;
+    std::cout << "Sum = " << sum << std::endl;
+
+    // параллельная версия
+    omp_set_num_threads(4);
+    auto start_par = std::chrono::high_resolution_clock::now();
+    sum = 0.0;
+#pragma omp parallel
+    {
+#pragma omp critical
+        {
+            int id = omp_get_thread_num();
+            int num = omp_get_num_threads();
+            std::cout << "Thread " << id << " of " << num << " is working" << std::endl;
+        }
+
+#pragma omp for reduction(+:sum)
+        for (int i = 0; i < N; ++i) {
+            sum += a[i];
+        }
+    }
+
+    auto end_par = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed_par = end_par - start_par;
+    std::cout << "Parallel version: " << elapsed_par.count() << " seconds" << std::endl;
+    std::cout << "Sum = " << sum << std::endl;
+    std::cout << "Speedup: " << elapsed_seq.count() / elapsed_par.count() << std::endl;
+    delete[] a;
+    return 0;
+}
